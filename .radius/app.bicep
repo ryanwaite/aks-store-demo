@@ -1,5 +1,16 @@
 extension radius
 
+param aiDeploymentName string
+
+param aiEndpoint string
+
+param aiImageDeploymentName string
+
+param aiImageEndpoint string
+
+@secure()
+param aiKey string
+
 param environment string
 
 @secure()
@@ -37,6 +48,21 @@ resource rabbitMQ 'Radius.Messaging/rabbitMQ@2025-08-01-preview' = {
     password: rabbitPassword
     queue: 'orders'
     username: 'username'
+  }
+}
+
+resource aiServiceCredentials 'Radius.Security/secrets@2025-08-01-preview' = {
+  name: 'ai-service-credentials'
+  properties: {
+    environment: environment
+    application: aksStoreDemoApp.id
+    codeReference: 'https://github.com/ryanwaite/aks-store-demo/blob/ryanwaite-stunning-chainsaw/src/ai-service/routers/description_generator.py#L137'
+    data: {
+      AZURE_OPENAI_API_KEY: {
+        value: aiKey
+      }
+    }
+    kind: 'generic'
   }
 }
 
@@ -82,17 +108,17 @@ resource storeAdminNginxConfig 'Radius.Security/secrets@2025-08-01-preview' = {
     data: {
       'default.conf': {
         #disable-next-line use-secure-value-for-secure-inputs
-        value: '''
+        value: replace(replace(replace('''
 upstream makeline_service {
-    server ${makelineServiceContainer.properties.hosts.makelineService}:3001;
+    server __MAKELINE_HOST__:3001;
 }
 
 upstream order_service {
-    server ${orderServiceContainer.properties.hosts.orderService}:3000;
+    server __ORDER_HOST__:3000;
 }
 
 upstream product_service {
-    server ${productServiceContainer.properties.hosts.productService}:3002;
+    server __PRODUCT_HOST__:3002;
 }
 
 server {
@@ -163,7 +189,7 @@ server {
         proxy_http_version 1.1;
     }
 }
-'''
+''', '__MAKELINE_HOST__', makelineServiceContainer.properties.hosts.makelineService), '__ORDER_HOST__', orderServiceContainer.properties.hosts.orderService), '__PRODUCT_HOST__', productServiceContainer.properties.hosts.productService)
       }
     }
     kind: 'generic'
@@ -179,13 +205,13 @@ resource storeFrontNginxConfig 'Radius.Security/secrets@2025-08-01-preview' = {
     data: {
       'default.conf': {
         #disable-next-line use-secure-value-for-secure-inputs
-        value: '''
+        value: replace(replace('''
 upstream order_service {
-    server ${orderServiceContainer.properties.hosts.orderService}:3000;
+    server __ORDER_HOST__:3000;
 }
 
 upstream product_service {
-    server ${productServiceContainer.properties.hosts.productService}:3002;
+    server __PRODUCT_HOST__:3002;
 }
 
 server {
@@ -218,11 +244,30 @@ server {
         proxy_http_version 1.1;
     }
 }
-'''
+''', '__ORDER_HOST__', orderServiceContainer.properties.hosts.orderService), '__PRODUCT_HOST__', productServiceContainer.properties.hosts.productService)
       }
     }
     kind: 'generic'
   }
+}
+
+resource aiServiceImage 'Radius.Compute/containerImages@2025-08-01-preview' = {
+  name: 'ai-service-image'
+  properties: {
+    environment: environment
+    application: aksStoreDemoApp.id
+    codeReference: 'https://github.com/ryanwaite/aks-store-demo/blob/ryanwaite-stunning-chainsaw/src/ai-service/Dockerfile#L1'
+    tag: 'f9ddce8'
+    build: {
+      source: 'git::https://github.com/ryanwaite/aks-store-demo.git//src/ai-service?ref=f9ddce8ea89416a5a3500ead947e883525ff892d'
+      platforms: [
+        'linux/amd64'
+      ]
+    }
+  }
+  dependsOn: [
+    registryCreds
+  ]
 }
 
 resource makelineServiceImage 'Radius.Compute/containerImages@2025-08-01-preview' = {
@@ -231,9 +276,9 @@ resource makelineServiceImage 'Radius.Compute/containerImages@2025-08-01-preview
     environment: environment
     application: aksStoreDemoApp.id
     codeReference: 'https://github.com/ryanwaite/aks-store-demo/blob/ryanwaite-stunning-chainsaw/src/makeline-service/Dockerfile#L1'
-    tag: '0e254cc3f9837cf03e1b165db01768e012e0aace'
+    tag: 'f9ddce8'
     build: {
-      source: 'git::https://github.com/ryanwaite/aks-store-demo.git//src/makeline-service?ref=0e254cc3f9837cf03e1b165db01768e012e0aace'
+      source: 'git::https://github.com/ryanwaite/aks-store-demo.git//src/makeline-service?ref=f9ddce8ea89416a5a3500ead947e883525ff892d'
       platforms: [
         'linux/amd64'
       ]
@@ -250,9 +295,9 @@ resource orderServiceImage 'Radius.Compute/containerImages@2025-08-01-preview' =
     environment: environment
     application: aksStoreDemoApp.id
     codeReference: 'https://github.com/ryanwaite/aks-store-demo/blob/ryanwaite-stunning-chainsaw/src/order-service/Dockerfile#L1'
-    tag: '0e254cc3f9837cf03e1b165db01768e012e0aace'
+    tag: 'f9ddce8'
     build: {
-      source: 'git::https://github.com/ryanwaite/aks-store-demo.git//src/order-service?ref=0e254cc3f9837cf03e1b165db01768e012e0aace'
+      source: 'git::https://github.com/ryanwaite/aks-store-demo.git//src/order-service?ref=f9ddce8ea89416a5a3500ead947e883525ff892d'
       platforms: [
         'linux/amd64'
       ]
@@ -269,9 +314,9 @@ resource productServiceImage 'Radius.Compute/containerImages@2025-08-01-preview'
     environment: environment
     application: aksStoreDemoApp.id
     codeReference: 'https://github.com/ryanwaite/aks-store-demo/blob/ryanwaite-stunning-chainsaw/src/product-service/Dockerfile#L1'
-    tag: '0e254cc3f9837cf03e1b165db01768e012e0aace'
+    tag: 'f9ddce8'
     build: {
-      source: 'git::https://github.com/ryanwaite/aks-store-demo.git//src/product-service?ref=0e254cc3f9837cf03e1b165db01768e012e0aace'
+      source: 'git::https://github.com/ryanwaite/aks-store-demo.git//src/product-service?ref=f9ddce8ea89416a5a3500ead947e883525ff892d'
       platforms: [
         'linux/amd64'
       ]
@@ -288,9 +333,9 @@ resource storeAdminImage 'Radius.Compute/containerImages@2025-08-01-preview' = {
     environment: environment
     application: aksStoreDemoApp.id
     codeReference: 'https://github.com/ryanwaite/aks-store-demo/blob/ryanwaite-stunning-chainsaw/src/store-admin/Dockerfile#L1'
-    tag: '0e254cc3f9837cf03e1b165db01768e012e0aace'
+    tag: 'f9ddce8'
     build: {
-      source: 'git::https://github.com/ryanwaite/aks-store-demo.git//src/store-admin?ref=0e254cc3f9837cf03e1b165db01768e012e0aace'
+      source: 'git::https://github.com/ryanwaite/aks-store-demo.git//src/store-admin?ref=f9ddce8ea89416a5a3500ead947e883525ff892d'
       platforms: [
         'linux/amd64'
       ]
@@ -307,9 +352,9 @@ resource storeFrontImage 'Radius.Compute/containerImages@2025-08-01-preview' = {
     environment: environment
     application: aksStoreDemoApp.id
     codeReference: 'https://github.com/ryanwaite/aks-store-demo/blob/ryanwaite-stunning-chainsaw/src/store-front/Dockerfile#L1'
-    tag: '0e254cc3f9837cf03e1b165db01768e012e0aace'
+    tag: 'f9ddce8'
     build: {
-      source: 'git::https://github.com/ryanwaite/aks-store-demo.git//src/store-front?ref=0e254cc3f9837cf03e1b165db01768e012e0aace'
+      source: 'git::https://github.com/ryanwaite/aks-store-demo.git//src/store-front?ref=f9ddce8ea89416a5a3500ead947e883525ff892d'
       platforms: [
         'linux/amd64'
       ]
@@ -326,9 +371,9 @@ resource virtualCustomerImage 'Radius.Compute/containerImages@2025-08-01-preview
     environment: environment
     application: aksStoreDemoApp.id
     codeReference: 'https://github.com/ryanwaite/aks-store-demo/blob/ryanwaite-stunning-chainsaw/src/virtual-customer/Dockerfile#L1'
-    tag: '0e254cc3f9837cf03e1b165db01768e012e0aace'
+    tag: 'f9ddce8'
     build: {
-      source: 'git::https://github.com/ryanwaite/aks-store-demo.git//src/virtual-customer?ref=0e254cc3f9837cf03e1b165db01768e012e0aace'
+      source: 'git::https://github.com/ryanwaite/aks-store-demo.git//src/virtual-customer?ref=f9ddce8ea89416a5a3500ead947e883525ff892d'
       platforms: [
         'linux/amd64'
       ]
@@ -345,9 +390,9 @@ resource virtualWorkerImage 'Radius.Compute/containerImages@2025-08-01-preview' 
     environment: environment
     application: aksStoreDemoApp.id
     codeReference: 'https://github.com/ryanwaite/aks-store-demo/blob/ryanwaite-stunning-chainsaw/src/virtual-worker/Dockerfile#L1'
-    tag: '0e254cc3f9837cf03e1b165db01768e012e0aace'
+    tag: 'f9ddce8'
     build: {
-      source: 'git::https://github.com/ryanwaite/aks-store-demo.git//src/virtual-worker?ref=0e254cc3f9837cf03e1b165db01768e012e0aace'
+      source: 'git::https://github.com/ryanwaite/aks-store-demo.git//src/virtual-worker?ref=f9ddce8ea89416a5a3500ead947e883525ff892d'
       platforms: [
         'linux/amd64'
       ]
@@ -356,6 +401,60 @@ resource virtualWorkerImage 'Radius.Compute/containerImages@2025-08-01-preview' 
   dependsOn: [
     registryCreds
   ]
+}
+
+resource aiServiceContainer 'Radius.Compute/containers@2025-08-01-preview' = {
+  name: 'ai-service'
+  properties: {
+    environment: environment
+    application: aksStoreDemoApp.id
+    codeReference: 'https://github.com/ryanwaite/aks-store-demo/blob/ryanwaite-stunning-chainsaw/src/ai-service/main.py#L17'
+    replicas: 1
+    containers: {
+      aiService: {
+        image: aiServiceImage.properties.imageReference
+        ports: {
+          web: {
+            containerPort: 5001
+          }
+        }
+        env: {
+          AZURE_OPENAI_API_KEY: {
+            valueFrom: {
+              secretKeyRef: {
+                secretName: aiServiceCredentials.name
+                key: 'AZURE_OPENAI_API_KEY'
+              }
+            }
+          }
+          AZURE_OPENAI_API_VERSION: {
+            value: '2024-12-01-preview'
+          }
+          AZURE_OPENAI_DEPLOYMENT_NAME: {
+            value: aiDeploymentName
+          }
+          AZURE_OPENAI_ENDPOINT: {
+            value: aiEndpoint
+          }
+          AZURE_OPENAI_IMAGE_API_VERSION: {
+            value: '2025-04-01-preview'
+          }
+          AZURE_OPENAI_IMAGE_DEPLOYMENT_NAME: {
+            value: aiImageDeploymentName
+          }
+          AZURE_OPENAI_IMAGE_ENDPOINT: {
+            value: aiImageEndpoint
+          }
+          USE_AZURE_AD: {
+            value: 'False'
+          }
+          USE_AZURE_OPENAI: {
+            value: 'True'
+          }
+        }
+      }
+    }
+  }
 }
 
 resource makelineServiceContainer 'Radius.Compute/containers@2025-08-01-preview' = {
@@ -471,6 +570,17 @@ resource productServiceContainer 'Radius.Compute/containers@2025-08-01-preview' 
             containerPort: 3002
           }
         }
+        env: {
+          AI_SERVICE_URL: {
+            value: 'http://${aiServiceContainer.properties.hosts.aiService}:5001'
+          }
+        }
+      }
+    }
+    connections: {
+      aiService: {
+        source: aiServiceContainer.id
+        disableDefaultEnvVars: true
       }
     }
   }
@@ -504,6 +614,20 @@ resource storeAdminContainer 'Radius.Compute/containers@2025-08-01-preview' = {
         secretName: storeAdminNginxConfig.name
       }
     }
+    connections: {
+      makelineService: {
+        source: makelineServiceContainer.id
+        disableDefaultEnvVars: true
+      }
+      orderService: {
+        source: orderServiceContainer.id
+        disableDefaultEnvVars: true
+      }
+      productService: {
+        source: productServiceContainer.id
+        disableDefaultEnvVars: true
+      }
+    }
   }
 }
 
@@ -533,6 +657,16 @@ resource storeFrontContainer 'Radius.Compute/containers@2025-08-01-preview' = {
     volumes: {
       nginxConfig: {
         secretName: storeFrontNginxConfig.name
+      }
+    }
+    connections: {
+      orderService: {
+        source: orderServiceContainer.id
+        disableDefaultEnvVars: true
+      }
+      productService: {
+        source: productServiceContainer.id
+        disableDefaultEnvVars: true
       }
     }
   }
