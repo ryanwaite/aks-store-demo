@@ -102,41 +102,27 @@ jobs:
 
       - name: Connect to AKS cluster
         if: ${{ vars.AZURE_AKS_CLUSTER_NAME != '' }}
-        env:
-          # Pass environment-controlled values through the environment rather
-          # than interpolating them into the shell source, so a crafted value
-          # cannot execute commands in this OIDC + write job.
-          #
-          # The resource group here is the one the cluster lives in, which is
-          # not AZURE_RESOURCE_GROUP: that one is where the application's
-          # resources are created, and the two are allowed to differ. Falls back
-          # to it for environments created before AZURE_AKS_RESOURCE_GROUP was
-          # recorded.
-          AZURE_AKS_RESOURCE_GROUP: ${{ vars.AZURE_AKS_RESOURCE_GROUP || vars.AZURE_RESOURCE_GROUP }}
-          AZURE_AKS_CLUSTER_NAME: ${{ vars.AZURE_AKS_CLUSTER_NAME }}
-          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
         run: |
+          # The resource group the cluster lives in, which is not
+          # AZURE_RESOURCE_GROUP: that one is where the application's resources
+          # are created, and the two are allowed to differ. Falls back to it for
+          # environments created before AZURE_AKS_RESOURCE_GROUP was recorded.
           az aks get-credentials \
-            --resource-group "$AZURE_AKS_RESOURCE_GROUP" \
-            --name "$AZURE_AKS_CLUSTER_NAME" \
-            --subscription "$AZURE_SUBSCRIPTION_ID" \
+            --resource-group "${{ vars.AZURE_AKS_RESOURCE_GROUP || vars.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ vars.AZURE_AKS_CLUSTER_NAME }}" \
+            --subscription "${{ vars.AZURE_SUBSCRIPTION_ID }}" \
             --file "$RADIUS_TARGET_KUBECONFIG"
 
       - name: Set up control plane
-        uses: radius-project/ai-extensions/.github/extension/actions/setup-control-plane@24ad63f740a199e5769b8589668c35d525faa13f
+        uses: radius-project/ai-extensions/.github/extension/actions/setup-control-plane@9008c880fd3e3b4bc80b1f2bf399030b82293d5d
 
       - name: Project cloud OIDC tokens into Radius pods
-        env:
-          # Read from the environment rather than interpolated into the shell
-          # source, so a crafted value cannot execute commands in this
-          # OIDC + write job.
-          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
         run: |
           # Mint GitHub OIDC tokens and mount them where Radius expects them, so the
           # recipe deletes triggered by the delete can authenticate to Azure exactly
           # as the deploy workflow does. GitHub Actions is already a trusted OIDC
           # issuer for Azure via the AAD federated credential.
-          if [ -n "$AZURE_CLIENT_ID" ]; then
+          if [ -n "${{ vars.AZURE_CLIENT_ID }}" ]; then
             echo "Projecting Azure OIDC token..."
             AZ_TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
               "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" | jq -r '.value')
@@ -186,30 +172,24 @@ jobs:
 
       - name: Restore Radius state
         id: restore-state
-        uses: radius-project/ai-extensions/.github/extension/actions/restore-state@24ad63f740a199e5769b8589668c35d525faa13f
+        uses: radius-project/ai-extensions/.github/extension/actions/restore-state@9008c880fd3e3b4bc80b1f2bf399030b82293d5d
         with:
           namespace: ${{ vars.KUBERNETES_NAMESPACE || 'default' }}
 
       - name: Register cloud credentials with Radius
-        env:
-          # Read from the environment rather than interpolated into the shell
-          # source, so a crafted value cannot execute commands in this
-          # OIDC + write job.
-          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
-          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
         run: |
           # Register the Azure identity so the recipe deletes can authenticate,
           # reading the projected OIDC token at runtime.
-          if [ -n "$AZURE_CLIENT_ID" ]; then
+          if [ -n "${{ vars.AZURE_CLIENT_ID }}" ]; then
             echo "Registering Azure workload identity credential..."
             rad credential register azure wi \
-              --client-id "$AZURE_CLIENT_ID" \
-              --tenant-id "$AZURE_TENANT_ID"
+              --client-id "${{ vars.AZURE_CLIENT_ID }}" \
+              --tenant-id "${{ vars.AZURE_TENANT_ID }}"
           fi
           echo "✅ Cloud credentials registered with Radius."
 
       - name: Delete Radius resource
-        uses: radius-project/ai-extensions/.github/extension/actions/delete-resource@24ad63f740a199e5769b8589668c35d525faa13f
+        uses: radius-project/ai-extensions/.github/extension/actions/delete-resource@9008c880fd3e3b4bc80b1f2bf399030b82293d5d
         with:
           resource-type: ${{ inputs.resource_type }}
           name: ${{ inputs.name }}
@@ -218,7 +198,7 @@ jobs:
 
       - name: Discard the deleted application's deployed graph
         if: ${{ inputs.resource_type == 'application' }}
-        uses: radius-project/ai-extensions/.github/extension/actions/discard-deploy-status@24ad63f740a199e5769b8589668c35d525faa13f
+        uses: radius-project/ai-extensions/.github/extension/actions/discard-deploy-status@9008c880fd3e3b4bc80b1f2bf399030b82293d5d
         with:
           environment: ${{ inputs.environment }}
           application: ${{ inputs.name }}
@@ -226,7 +206,7 @@ jobs:
 
       - name: Clean up unused routes Gateway infrastructure
         if: ${{ inputs.resource_type == 'application' }}
-        uses: radius-project/ai-extensions/.github/extension/actions/manage-routes-gateway@24ad63f740a199e5769b8589668c35d525faa13f
+        uses: radius-project/ai-extensions/.github/extension/actions/manage-routes-gateway@9008c880fd3e3b4bc80b1f2bf399030b82293d5d
         with:
           mode: cleanup
           target-kubeconfig: ${{ env.RADIUS_TARGET_KUBECONFIG }}
@@ -239,6 +219,6 @@ jobs:
 
       - name: Teardown
         if: always()
-        uses: radius-project/ai-extensions/.github/extension/actions/teardown@24ad63f740a199e5769b8589668c35d525faa13f
+        uses: radius-project/ai-extensions/.github/extension/actions/teardown@9008c880fd3e3b4bc80b1f2bf399030b82293d5d
         with:
           state-restored: ${{ steps.restore-state.outputs.state-restored }}
